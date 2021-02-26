@@ -896,6 +896,7 @@
     <string name="conversation_toolbar__collection">Collection</string>
     <string name="conversation_toolbar__call_video">Video call</string>
     <string name="conversation_toolbar__call_audio">Audio call</string>
+    <string name="conversation_toolbar__export_chat">Export chat</string>
 
     <!-- Asset upload errors -->
     <string name="asset_upload_error__not_found__title">File not found</string>
@@ -1253,6 +1254,17 @@
     <string name="new_conv_no_results">No results</string>
     <string name="new_conv_no_contacts">No contacts</string>
 
+    <string name="start_export">Start export</string>
+    <string name="export_file_not_set">The export file is not defined</string>
+    <string name="export_done">Export done</string>
+    <string name="include_media_files">Include media files</string>
+    <string name="include_html_files">Include HTML-Viewer files</string>
+    <string name="enable_export_date_from">Enable export date from</string>
+    <string name="date_from">Date from</string>
+    <string name="enable_export_date_to">Enable export date to</string>
+    <string name="date_to">Date to</string>
+    <string name="dots">…</string>
+    <string name="filename">Filename</string>
 
     <plurals name="participants_divider_services">
         <item quantity="zero">SERVICES</item>

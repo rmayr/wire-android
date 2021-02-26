@@ -85,6 +85,7 @@ import scala.collection.immutable.ListSet
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import com.waz.threading.Threading._
+import com.waz.zclient.`export`.ExportController
 
 class ConversationFragment extends FragmentHelper {
   import ConversationFragment._
@@ -108,6 +109,7 @@ class ConversationFragment extends FragmentHelper {
   private lazy val userPrefs              = inject[Signal[UserPreferences]]
   private lazy val replyController        = inject[ReplyController]
   private lazy val accentColor            = inject[Signal[AccentColor]]
+  private lazy val exportController         = inject[ExportController]
 
   //TODO remove use of old java controllers
   private lazy val globalLayoutController     = inject[IGlobalLayoutController]
@@ -223,6 +225,7 @@ class ConversationFragment extends FragmentHelper {
     }).onUi { id =>
       toolbar.getMenu.clear()
       id.foreach(toolbar.inflateMenu)
+      toolbar.inflateMenu(R.menu.conversation_header_menu_export)
     }
 
     participantsController.otherParticipantExists.onUi { showToolbarGlyph =>
@@ -363,6 +366,12 @@ class ConversationFragment extends FragmentHelper {
           case R.id.action_audio_call | R.id.action_video_call =>
             callStartController.startCallInCurrentConv(withVideo = item.getItemId == R.id.action_video_call, forceOption = true)
             cursorView.foreach(_.closeEditMessage(false))
+            true
+          case R.id.action_export_chat =>
+            //TODO implement
+            exportController.onShowExport ! None
+            cursorView.foreach(_.closeEditMessage(false))
+            keyboardController.hideKeyboardIfVisible()
             true
           case _ => false
       }
