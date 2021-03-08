@@ -518,15 +518,17 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
   }
 
   private def saveAssetIdAndGetFilename(assetId: AssetId, folder: String, filename: Option[String] = None, convId: Option[ConvId] = None): Option[String] = {
+    var file=filename
+    if(file.getOrElse("").equals("")) file=None
     var path: Option[String]=None
     val lockObject = new AtomicBoolean(false)
     lockObject.synchronized {
       val acc=(ai: AssetInput)=>{
         try{
         ai.toInputStream.foreach(is => {
-          path=Some(folder + filename.getOrElse(assetId.str+assetIdGetFileExtension(assetId).map(a=>"."+a).getOrElse("")))
-          zip.writeFile(path.get,is)
-          verbose(l"SUCCESS LOADING FILE : ${showString(path.get)}")
+          path=Some(folder + file.getOrElse(assetId.str+assetIdGetFileExtension(assetId).map(a=>"."+a).getOrElse("")))
+          if(zip.fileExists(path.get)) path=Some(folder + assetId.str+assetIdGetFileExtension(assetId).map(a=>"."+a).getOrElse(""))
+          if(!zip.fileExists(path.get)) zip.writeFile(path.get,is)
         })
         }catch{
           case e: Throwable => verbose(l"EXPORT - ERROR: ${showString(e.toString)}")
