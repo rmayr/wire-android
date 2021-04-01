@@ -45,6 +45,7 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
   private val documentBuilder = documentFactory.newDocumentBuilder
   private val doc = documentBuilder.newDocument
   private var zip: ExportZip= _
+  private val debug=true
 
   def export(convIds: Seq[ConvId]): Unit = {
     if(exportController.exportFile.isEmpty){
@@ -58,7 +59,7 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
     Await.ready(fut,Duration.Inf)
 
     verbose(l"------------ START EXPORT ------------")
-    verbose(l"FILE: ${showString(exportController.exportFile.get.toString)}")
+    if(debug) verbose(l"FILE: ${showString(exportController.exportFile.get.toString)}")
     zip=new ExportZip(WireApplication.APP_INSTANCE.getContentResolver.openFileDescriptor(exportController.exportFile.get, "rwt"))
 
     val root = doc.createElement("chatexport")
@@ -66,9 +67,11 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
     val conversations=addElement(root,"conversations")
     val users=addElement(root,"users")
 
+    if(debug) verbose(l"############ Export Conversations ############")
     // ADD CONVERSATIONS
     convIds.foreach(cid=>conversations.appendChild(createConversationElement(cid)))
 
+    if(debug) verbose(l"############ Export Users ############")
     var selfId: Option[UserId]=None
     val selfidFut=zmsg.users.selfUser.future
     selfidFut.onSuccess{case u=>selfId=Some(u.id)}
@@ -76,6 +79,7 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
     // ADD USERS
     userList.toList.distinct.map(u=>exportController.usersController.user(u).future).map(f=>Await.ready(f,Duration.Inf)).map(f=>{
         f.map(ud=>{
+          if(debug) verbose(l"Export: User >> ID - ${showString(ud.id.toString)}")
           val user=addElement(users, "user")
           if(selfId.nonEmpty && selfId.get.equals(ud.id)) user.setAttribute("isSelf","true")
           addElement(user,"userid",ud.id.str)
@@ -101,6 +105,7 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
         })
       }).foreach(f=>Await.ready(f,Duration.Inf))
 
+    if(debug) verbose(l"############ Export XML to ZIP ############")
     val transformerFactory = TransformerFactory.newInstance
     val transformer = transformerFactory.newTransformer
     transformer.setOutputProperty(OutputKeys.INDENT, "yes")
@@ -111,14 +116,19 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
       val streamResult = new StreamResult(o)
       transformer.transform(domSource, streamResult)
     })
-    if(exportController.includeHtml) zip.addHtmlViewerFiles()
+    if(exportController.includeHtml){
+      if(debug) verbose(l"############ Export HTML-VIEWER ############")
+      zip.addHtmlViewerFiles()
+    }
     zip.close()
     verbose(l"------------- END EXPORT -------------")
   }
 
-  private def createConversationElement(convId: ConvId): Element ={
+  private def createConversationElement(convId: ConvId): Element = {
+    if(debug) verbose(l"Export: Conversation >> ID - ${showString(convId.toString)}")
     val conversation=doc.createElement("conversation")
     // ADD CONVERSATION INFORMATION
+    if(debug) verbose(l"Export: ConversationData >> ID - ${showString(convId.toString)}")
     exportController.convController.conversationData(convId).future.foreach(o=>o.foreach(cd=>{
       addElement(conversation, "id",cd.id.str)
       addElement(conversation, "remoteid",cd.remoteId.str)
@@ -135,8 +145,10 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
       cd.link.foreach(l=>addElement(conversation,"link",l.url))
     }))
     // ADD USERS OF CONVERSATION AND THEIR ROLES
+    if(debug) verbose(l"Export: Users and roles")
     val userroles=addElement(conversation,"userroles")
     val userAddFut=exportController.convController.convMembers(convId).future.map(m=>m.foreach({case (uid,cr)=>
+      if(debug) verbose(l"Export: Add users and roles >> User-ID - ${showString(uid.toString)}")
       val userrole=addElement(userroles, "userrole")
       addAttribute(userrole,"userid",uid.str)
       addAttribute(userrole,"role",cr.label)
@@ -144,6 +156,7 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
     }))
     Await.ready(userAddFut, Duration.Inf)
     // ADD MESSAGES
+    if(debug) verbose(l"Export: Messages >> ID - ${showString(convId.toString)}")
     val messagesElem=addElement(conversation, "messages")
     val lockObject=new AtomicBoolean(false)
     lockObject.synchronized{
@@ -175,6 +188,7 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
   }
 
   private def createMessageElement(message: MessageData): Element = {
+    if(debug) verbose(l"Export: Create Message element >> ID - ${showString(message.id.toString)}")
     val msg=doc.createElement("message")
     addElement(msg, "id", message.id.str)
     addElement(msg, "msg_type", message.msgType.toString)
@@ -211,6 +225,7 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
       val quote=addElement(msg, "quote", q.message.str)
       quote.setAttribute("validity",q.validity.toString)
     })
+    if(debug) verbose(l"Export: Add Message content >> ID - ${showString(message.id.toString)}")
     if(message.content.nonEmpty){
       val contents=addElement(msg, "contents")
       message.content.foreach(mc=>{
@@ -332,6 +347,7 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
   }
 
   private def createCompositeElement(composite: Messages.Composite): Element = {
+    if(debug) verbose(l"Export: Create Composite element")
     val comp=doc.createElement("composite")
     composite.items.foreach(item=>{
       if(item.hasText) comp.appendChild(createTextElement(item.getText))
@@ -346,6 +362,7 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
   }
 
   private def createMediaAssetData(mda: MediaAssetData, tagname: String = "rich_media"): Element = {
+    if(debug) verbose(l"Export: Create MediaAsset element")
     val richMedia=doc.createElement(tagname)
     addElement(richMedia,"kind",mda.kind match {
       case KindOfMedia.PLAYLIST => "PLAYLIST"
@@ -384,6 +401,7 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
   }
 
   private def createImageElement(m_image: Messages.ImageAsset, expireMillis: Long = -1): Element = {
+    if(debug) verbose(l"Export: Create Image element")
     val image=doc.createElement("image")
     if(expireMillis>=0)
       image.setAttribute("expiremillis",expireMillis.toString)
@@ -402,6 +420,7 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
   }
 
   private def createKnockElement(m_knock: Messages.Knock, expireMillis: Long = -1): Element = {
+    if(debug) verbose(l"Export: Create Knock element")
     val knock=doc.createElement("knock")
     if(expireMillis>=0)
       knock.setAttribute("expiremillis",expireMillis.toString)
@@ -410,6 +429,7 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
   }
 
   private def createLocationElement(m_location: Messages.Location, expireMillis: Long = -1): Element = {
+    if(debug) verbose(l"Export: Create Location element")
     val location=doc.createElement("location")
     if(expireMillis>=0)
       location.setAttribute("expiremillis",expireMillis.toString)
@@ -421,6 +441,7 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
   }
 
   private def createTextElement(m_text: Messages.Text, expireMillis: Long = -1): Element = {
+    if(debug) verbose(l"Export: Create Text element")
     val text=doc.createElement("text")
     if(expireMillis>=0)
       text.setAttribute("expiremillis",expireMillis.toString)
@@ -456,6 +477,7 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
   }
 
   private def createAssetElement(m_asset: Messages.Asset, expireMillis: Long = -1, tagname: String = "asset"): Element = {
+    if(debug) verbose(l"Export: Create Asset element")
     if(m_asset==null){
       val error=doc.createElement("debug_data")
       error.setTextContent("ERROR: GenericMessage of type ASSET_FIELD_NUMBER has no Asset (getAsset==null)")
@@ -518,6 +540,7 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
   }
 
   private def saveAssetIdAndGetFilename(assetId: AssetId, folder: String, filename: Option[String] = None, convId: Option[ConvId] = None): Option[String] = {
+    if(debug) verbose(l"Export: Save Asset (${showString(assetId.str)})")
     var file=filename
     if(file.getOrElse("").equals("")) file=None
     var path: Option[String]=None
@@ -527,7 +550,11 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
         try{
         ai.toInputStream.foreach(is => {
           path=Some(folder + file.getOrElse(assetId.str+assetIdGetFileExtension(assetId).map(a=>"."+a).getOrElse("")))
-          if(zip.fileExists(path.get)) path=Some(folder + assetId.str+assetIdGetFileExtension(assetId).map(a=>"."+a).getOrElse(""))
+          if(debug) verbose(l"Export: Save Asset (${showString(assetId.str)}) to ${showString(path.toString)}")
+          if(zip.fileExists(path.get)){
+            path=Some(folder + assetId.str+assetIdGetFileExtension(assetId).map(a=>"."+a).getOrElse(""))
+            if(debug) verbose(l"Export: (File already exists ==> ) Save Asset (${showString(assetId.str)}) to ${showString(path.toString)}")
+          }
           if(!zip.fileExists(path.get)) zip.writeFile(path.get,is)
         })
         }catch{
@@ -552,6 +579,7 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
   }
 
   private def assetIdGetFileExtension(assetId: AssetId): Option[String] = {
+    if(debug) verbose(l"Export: AssetID get extension: (${showString(assetId.str)})")
     var extension: Option[String]=None
     val fut=zmsg.assetService.getAsset(assetId).map(a=>extension=Some(a.mime.extension))
     try{

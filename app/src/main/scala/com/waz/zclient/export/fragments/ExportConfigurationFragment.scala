@@ -39,10 +39,14 @@ class ExportConfigurationFragment extends FragmentHelper {
     super.onViewCreated(view, savedInstanceState)
 
     exportButton.setEnabled(false)
+
+    /*
+    exportButton.setText("ADD DEBUG MESSAGES")
+    exportButton.setEnabled(true)
     exportButton.setOnClickListener(new View.OnClickListener {
       override def onClick(v: View): Unit = {
         exportLoadingIndicator.setVisibility(View.VISIBLE)
-        exportController.`export`(()=>{
+        exportController.generateTextMessages(()=>{
           getContext.asInstanceOf[Activity].runOnUiThread(new Runnable {
             override def run(): Unit = {
               exportLoadingIndicator.setVisibility(View.GONE)
@@ -52,6 +56,7 @@ class ExportConfigurationFragment extends FragmentHelper {
         })
       }
     })
+     */
 
     exportIncludeMediaSwitch.setChecked(exportController.exportFiles)
     exportIncludeMediaSwitch.setOnCheckedChangeListener(new OnCheckedChangeListener() {
@@ -121,6 +126,24 @@ class ExportConfigurationFragment extends FragmentHelper {
     }
   }
 
+  def enableExportButton(): Unit = {
+    exportButton.setEnabled(true)
+    exportButton.setText(R.string.start_export)
+    exportButton.setOnClickListener(new View.OnClickListener {
+      override def onClick(v: View): Unit = {
+        exportLoadingIndicator.setVisibility(View.VISIBLE)
+        exportController.`export`(()=>{
+          getContext.asInstanceOf[Activity].runOnUiThread(new Runnable {
+            override def run(): Unit = {
+              exportLoadingIndicator.setVisibility(View.GONE)
+              Toast.makeText(getContext,WireApplication.APP_INSTANCE.getApplicationContext.getString(R.string.export_done),Toast.LENGTH_LONG)
+            }
+          })
+        })
+      }
+    })
+  }
+
   import android.icu.util.Calendar
   import android.widget.DatePicker
   import android.widget.TimePicker
@@ -158,7 +181,7 @@ class ExportConfigurationFragment extends FragmentHelper {
       if (resultData != null) {
         exportController.exportFile = Some(resultData.getData)
         filePathInput.getEditText.setText(exportController.exportFile.get.toString)
-        exportButton.setEnabled(true)
+        enableExportButton()
       }
     }
   }
