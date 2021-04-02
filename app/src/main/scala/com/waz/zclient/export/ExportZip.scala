@@ -42,13 +42,20 @@ class ExportZip(fileDescriptor: ParcelFileDescriptor) extends DerivedLogTag {
     }
   }
   def fileExists(filepath: String): Boolean ={
-    files.contains(filepath)
+    this.synchronized{
+      files.contains(filepath)
+    }
   }
   def close(): Unit = {
     this.synchronized {
       zip.close()
       fileOutputStream.close()
       fileDescriptor.close()
+    }
+  }
+  def doSynchronizedToZip(callback: () => Unit): Unit ={
+    this.synchronized{
+       callback()
     }
   }
   def addHtmlViewerFiles(): Unit = {

@@ -8,14 +8,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 import android.webkit.MimeTypeMap
 import android.widget.Toast
 import com.waz.api.{KindOfMedia, MediaProvider}
-import com.waz.model.{AssetId, ConvId, MessageData, Mime, PictureNotUploaded, PictureUploaded, RemoteInstant, UserId}
+import com.waz.model.{AssetId, ConvId, MessageData, Mime, PictureNotUploaded, PictureUploaded, RemoteInstant, UserData, UserId}
 import com.waz.log.BasicLogging.LogTag.DerivedLogTag
 import com.waz.model.GenericContent.ClientAction
 import com.waz.model.messages.media.{MediaAssetData, TrackData}
 import com.waz.model.nano.Messages
 import com.waz.model.nano.Messages.Asset.Original
 import com.waz.model.nano.Messages.{Availability, Confirmation, Ephemeral}
-import com.waz.service.ZMessaging
+import com.waz.service.{SearchKey, ZMessaging}
 import com.waz.service.assets.AssetInput
 import com.waz.zclient.WireApplication
 import com.waz.zclient.log.LogUI.{verbose, _}
@@ -46,6 +46,7 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
   private val doc = documentBuilder.newDocument
   private var zip: ExportZip= _
   private val debug=true
+  private val waitTime=20000000000L // 20 seconds (in nanoseconds)
 
   def export(convIds: Seq[ConvId]): Unit = {
     if(exportController.exportFile.isEmpty){
@@ -56,7 +57,10 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
       return
     }
     val fut=exportController.zms.future.map(z=>zmsg=z)
-    Await.ready(fut,Duration.Inf)
+    Await.ready(fut, Duration.fromNanos(waitTime)).onFailure({case t =>
+      verbose(l"######## INTERNAL EXPORT ERROR 01 ########")
+      t.printStackTrace()
+    })
 
     verbose(l"------------ START EXPORT ------------")
     if(debug) verbose(l"FILE: ${showString(exportController.exportFile.get.toString)}")
@@ -73,11 +77,19 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
 
     if(debug) verbose(l"############ Export Users ############")
     var selfId: Option[UserId]=None
-    val selfidFut=zmsg.users.selfUser.future
-    selfidFut.onSuccess{case u=>selfId=Some(u.id)}
-    Await.ready(selfidFut,Duration.Inf)
+    zmsg.users.selfUser.future.withTimeout(Duration.fromNanos(waitTime)).recover({
+      case t =>
+        verbose(l"######## EXPORT ERROR 02 - SELF ########")
+        t.printStackTrace()
+        return
+    }).onSuccess{case u=>selfId=Some(u.id)}
     // ADD USERS
-    userList.toList.distinct.map(u=>exportController.usersController.user(u).future).map(f=>Await.ready(f,Duration.Inf)).map(f=>{
+    userList.toList.distinct.map(u=>exportController.usersController.user(u).future
+        .withTimeout(Duration.fromNanos(waitTime))
+        .recover({
+          case _ => new UserData(u, name="???", searchKey = SearchKey.Empty)
+        }))
+      .map(f=>{
         f.map(ud=>{
           if(debug) verbose(l"Export: User >> ID - ${showString(ud.id.toString)}")
           val user=addElement(users, "user")
@@ -103,7 +115,10 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
           if(ud.fields.nonEmpty) addElement(user,"userfields",ud.fields.toString)
           if(ud.permissions._1!=0 || ud.permissions._2!=0) addElement(user,"permission",ud.permissions._1+" "+ud.permissions._2)
         })
-      }).foreach(f=>Await.ready(f,Duration.Inf))
+      }).foreach(f=>Await.ready(f, Duration.fromNanos(waitTime)).onFailure({case t =>
+        verbose(l"##### EXPORT ERROR 04 - USER NOT FOUND #####")
+        t.printStackTrace()
+      }))
 
     if(debug) verbose(l"############ Export XML to ZIP ############")
     val transformerFactory = TransformerFactory.newInstance
@@ -154,7 +169,10 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
       addAttribute(userrole,"role",cr.label)
       userList+=uid
     }))
-    Await.ready(userAddFut, Duration.Inf)
+    Await.ready(userAddFut, Duration.fromNanos(waitTime)).onFailure({case t =>
+      verbose(l"##### EXPORT ERROR 05 - USERROLE #####")
+      t.printStackTrace()
+    })
     // ADD MESSAGES
     if(debug) verbose(l"Export: Messages >> ID - ${showString(convId.toString)}")
     val messagesElem=addElement(conversation, "messages")
@@ -551,11 +569,13 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
         ai.toInputStream.foreach(is => {
           path=Some(folder + file.getOrElse(assetId.str+assetIdGetFileExtension(assetId).map(a=>"."+a).getOrElse("")))
           if(debug) verbose(l"Export: Save Asset (${showString(assetId.str)}) to ${showString(path.toString)}")
-          if(zip.fileExists(path.get)){
-            path=Some(folder + assetId.str+assetIdGetFileExtension(assetId).map(a=>"."+a).getOrElse(""))
-            if(debug) verbose(l"Export: (File already exists ==> ) Save Asset (${showString(assetId.str)}) to ${showString(path.toString)}")
-          }
-          if(!zip.fileExists(path.get)) zip.writeFile(path.get,is)
+          zip.doSynchronizedToZip(()=>{
+            if(zip.fileExists(path.get)){
+              path=Some(folder + assetId.str+assetIdGetFileExtension(assetId).map(a=>"."+a).getOrElse(""))
+              if(debug) verbose(l"Export: (File already exists ==> ) Save Asset (${showString(assetId.str)}) to ${showString(path.toString)}")
+            }
+            if(!zip.fileExists(path.get)) zip.writeFile(path.get,is)
+          })
         })
         }catch{
           case e: Throwable => verbose(l"EXPORT - ERROR: ${showString(e.toString)}")
@@ -581,10 +601,7 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
   private def assetIdGetFileExtension(assetId: AssetId): Option[String] = {
     if(debug) verbose(l"Export: AssetID get extension: (${showString(assetId.str)})")
     var extension: Option[String]=None
-    val fut=zmsg.assetService.getAsset(assetId).map(a=>extension=Some(a.mime.extension))
-    try{
-      Await.ready(fut,Duration.fromNanos(2000000000L)) // WAIT 2 seconds
-    }catch{case _: Throwable =>}
+    zmsg.assetService.getAsset(assetId).withTimeout(Duration.fromNanos(2000000000L)).map(a=>extension=Some(a.mime.extension))
     extension
   }
 
@@ -593,7 +610,9 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
   }
 
   private def addAttribute(parent: Element, name: String, content: String): Unit = {
-    parent.setAttribute(name, content)
+    this.synchronized {
+      parent.setAttribute(name, content)
+    }
   }
 
   private def addElement(parent: Element, tagname: String, content: String): Element={
@@ -603,8 +622,11 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
   }
 
   private def addElement(parent: Element, tagname: String): Element={
-    val elem = doc.createElement(tagname)
-    parent.appendChild(elem)
+    var elem: Element=null
+    this.synchronized{
+      elem = doc.createElement(tagname)
+      parent.appendChild(elem)
+    }
     elem
   }
 }
