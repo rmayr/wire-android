@@ -3,7 +3,7 @@ package com.waz.zclient.`export`
 import java.io.File
 import java.time.Instant
 import java.time.format.DateTimeFormatter
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
 
 import android.webkit.MimeTypeMap
 import android.widget.Toast
@@ -46,7 +46,7 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
   private val doc = documentBuilder.newDocument
   private var zip: ExportZip= _
   private val debug=true
-  private val waitTime=20000000000L // 20 seconds (in nanoseconds)
+  private val waitTime=30000000000L // 30 seconds (in nanoseconds)
 
   def export(convIds: Seq[ConvId]): Unit = {
     if(exportController.exportFile.isEmpty){
@@ -84,13 +84,14 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
         return
     }).onSuccess{case u=>selfId=Some(u.id)}
     // ADD USERS
-    userList.toList.distinct.map(u=>exportController.usersController.user(u).future
+    val userAmount=new AtomicInteger(userList.size)
+    userList.toList.distinct.foreach(u=>exportController.usersController.user(u).future
         .withTimeout(Duration.fromNanos(waitTime))
         .recover({
-          case _ => new UserData(u, name="???", searchKey = SearchKey.Empty)
-        }))
-      .map(f=>{
-        f.map(ud=>{
+          case _ =>
+            verbose(l"##### EXPORT ERROR 04 - USER NOT FOUND (using empty userdata) #####")
+            new UserData(u, name="???", searchKey = SearchKey.Empty)
+        }).foreach(ud=>{
           if(debug) verbose(l"Export: User >> ID - ${showString(ud.id.toString)}")
           val user=addElement(users, "user")
           if(selfId.nonEmpty && selfId.get.equals(ud.id)) user.setAttribute("isSelf","true")
@@ -114,11 +115,18 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
           addElement(user,"accent_color",ud.accent.toString)
           if(ud.fields.nonEmpty) addElement(user,"userfields",ud.fields.toString)
           if(ud.permissions._1!=0 || ud.permissions._2!=0) addElement(user,"permission",ud.permissions._1+" "+ud.permissions._2)
-        })
-      }).foreach(f=>Await.ready(f, Duration.fromNanos(waitTime)).onFailure({case t =>
-        verbose(l"##### EXPORT ERROR 04 - USER NOT FOUND #####")
-        t.printStackTrace()
-      }))
+          if(debug) verbose(l"Export: User done >> ID - ${showString(ud.id.toString)}")
+          userAmount.synchronized{
+            userAmount.decrementAndGet()
+            userAmount.notifyAll()
+          }
+        }))
+    userAmount.synchronized{
+      while(userAmount.get()>0){
+        if(debug) verbose(l"Export: Wait for users to be exported: ${showString(userAmount.get().toString)}")
+        userAmount.wait()
+      }
+    }
 
     if(debug) verbose(l"############ Export XML to ZIP ############")
     val transformerFactory = TransformerFactory.newInstance
@@ -544,7 +552,7 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
 
           path.foreach(p=>addElement(asset, "filepath",p)) // add filepath if no error occoured
         }else{
-          verbose(l"NO UPLOADED: ${showString(m_asset.toString)}")
+          verbose(l"NOT UPLOADED: ${showString(m_asset.toString)}")
         }
       }
     }
@@ -585,8 +593,8 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
           }
         }
       }
-      zmsg.assetService.loadContentById(assetId, None).map(acc).onFailure({case e=>
-        zmsg.assetService.loadPublicContentById(assetId,convId).map(acc).onFailure({case e2=>
+      zmsg.assetService.loadContentById(assetId, None).withTimeout(Duration.fromNanos(waitTime)).map(acc).onFailure({case e=>
+        zmsg.assetService.loadPublicContentById(assetId,convId).withTimeout(Duration.fromNanos(waitTime)).map(acc).onFailure({case e2=>
           verbose(l"FAILURE LOADING FILE : ${showString(e.toString)} AND ${showString(e2.toString)}")
           lockObject.synchronized {
             lockObject.notifyAll()
