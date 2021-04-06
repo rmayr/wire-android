@@ -29,6 +29,7 @@ import scala.util.{Failure, Success}
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Await
 import com.waz.zclient.R
+import com.waz.znet2.http.HttpClient.ProgressCallback
 
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.Duration
@@ -47,6 +48,7 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
   private var zip: ExportZip= _
   private val debug=true
   private val waitTime=30000000000L // 30 seconds (in nanoseconds)
+  val lockObject = new AtomicBoolean(false)
 
   def export(convIds: Seq[ConvId]): Unit = {
     if(exportController.exportFile.isEmpty){
@@ -84,41 +86,46 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
         return
     }).onSuccess{case u=>selfId=Some(u.id)}
     // ADD USERS
-    val userAmount=new AtomicInteger(userList.size)
-    userList.toList.distinct.foreach(u=>exportController.usersController.user(u).future
+    val userListDist=userList.toList.distinct
+    if(debug) verbose(l"Export: Export user amount: ${showString(userListDist.size.toString)}")
+    val userAmount=new AtomicInteger(userListDist.size)
+    userListDist.foreach(u=>exportController.usersController.user(u).future
         .withTimeout(Duration.fromNanos(waitTime))
         .recover({
           case _ =>
             verbose(l"##### EXPORT ERROR 04 - USER NOT FOUND (using empty userdata) #####")
             new UserData(u, name="???", searchKey = SearchKey.Empty)
         }).foreach(ud=>{
-          if(debug) verbose(l"Export: User >> ID - ${showString(ud.id.toString)}")
-          val user=addElement(users, "user")
-          if(selfId.nonEmpty && selfId.get.equals(ud.id)) user.setAttribute("isSelf","true")
-          addElement(user,"userid",ud.id.str)
-          ud.handle.foreach(h=>addElement(user,"username",h.string))
-          ud.teamId.foreach(tid=>addElement(user,"teamid",tid.str))
-          addElement(user,"name",ud.name.str)
-          ud.email.foreach(em=>addElement(user,"email",em.str))
-          ud.phone.foreach(p=>addElement(user,"phone",p.str))
-          ud.trackingId.foreach(tid=>addElement(user,"trackingid",tid.str))
-          ud.picture.foreach(p=>{
-            (p match {
-              case p: PictureUploaded => saveAssetIdAndGetFilename(p.id, profilePath).orElse(Some(p.id.str))
-              case p: PictureNotUploaded => saveAssetIdAndGetFilename(AssetId.apply(p.id.str), profilePath).orElse(Some(p.id.str))
-              case _ => None
-            }).foreach(path=>{
-              val pic=addElement(user,"picture", path)
-              addAttribute(pic,"uploaded",p.isInstanceOf[PictureUploaded].toString)
+          userListDist.synchronized{
+            if(debug) verbose(l"Export: User >> ID - ${showString(ud.id.toString)}")
+            val user=addElement(users, "user")
+            if(selfId.nonEmpty && selfId.get.equals(ud.id)) user.setAttribute("isSelf","true")
+            addElement(user,"userid",ud.id.str)
+            addElement(user,"name",ud.name.str)
+            addElement(user,"accent_color",ud.accent.toString)
+            if(debug) verbose(l"Export: User >> ID - ${showString(ud.id.toString)} >> required fields exported")
+            ud.handle.foreach(h=>addElement(user,"username",h.string))
+            ud.teamId.foreach(tid=>addElement(user,"teamid",tid.str))
+            ud.email.foreach(em=>addElement(user,"email",em.str))
+            ud.phone.foreach(p=>addElement(user,"phone",p.str))
+            ud.trackingId.foreach(tid=>addElement(user,"trackingid",tid.str))
+            ud.picture.foreach(p=>{
+              (p match {
+                case p: PictureUploaded => saveAssetIdAndGetFilename(p.id, profilePath).orElse(Some(p.id.str))
+                case p: PictureNotUploaded => saveAssetIdAndGetFilename(AssetId.apply(p.id.str), profilePath).orElse(Some(p.id.str))
+                case _ => None
+              }).foreach(path=>{
+                val pic=addElement(user,"picture", path)
+                addAttribute(pic,"uploaded",p.isInstanceOf[PictureUploaded].toString)
+              })
             })
-          })
-          addElement(user,"accent_color",ud.accent.toString)
-          if(ud.fields.nonEmpty) addElement(user,"userfields",ud.fields.toString)
-          if(ud.permissions._1!=0 || ud.permissions._2!=0) addElement(user,"permission",ud.permissions._1+" "+ud.permissions._2)
-          if(debug) verbose(l"Export: User done >> ID - ${showString(ud.id.toString)}")
-          userAmount.synchronized{
-            userAmount.decrementAndGet()
-            userAmount.notifyAll()
+            if(ud.fields.nonEmpty) addElement(user,"userfields",ud.fields.toString)
+            if(ud.permissions._1!=0 || ud.permissions._2!=0) addElement(user,"permission",ud.permissions._1+" "+ud.permissions._2)
+            if(debug) verbose(l"Export: User done >> ID - ${showString(ud.id.toString)}")
+            userAmount.synchronized{
+              userAmount.decrementAndGet()
+              userAmount.notifyAll()
+            }
           }
         }))
     userAmount.synchronized{
@@ -570,21 +577,21 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
     var file=filename
     if(file.getOrElse("").equals("")) file=None
     var path: Option[String]=None
-    val lockObject = new AtomicBoolean(false)
     lockObject.synchronized {
       val acc=(ai: AssetInput)=>{
         try{
-        ai.toInputStream.foreach(is => {
-          path=Some(folder + file.getOrElse(assetId.str+assetIdGetFileExtension(assetId).map(a=>"."+a).getOrElse("")))
-          if(debug) verbose(l"Export: Save Asset (${showString(assetId.str)}) to ${showString(path.toString)}")
-          zip.doSynchronizedToZip(()=>{
-            if(zip.fileExists(path.get)){
-              path=Some(folder + assetId.str+assetIdGetFileExtension(assetId).map(a=>"."+a).getOrElse(""))
-              if(debug) verbose(l"Export: (File already exists ==> ) Save Asset (${showString(assetId.str)}) to ${showString(path.toString)}")
-            }
-            if(!zip.fileExists(path.get)) zip.writeFile(path.get,is)
+          ai.toInputStream.foreach(is => {
+            path=Some(folder + file.getOrElse(assetId.str+assetIdGetFileExtension(assetId).map(a=>"."+a).getOrElse("")))
+            if(debug) verbose(l"Export: Save Asset (${showString(assetId.str)}) to ${showString(path.toString)}")
+            zip.doSynchronizedToZip(()=>{
+              if(zip.fileExists(path.get)){
+                path=Some(folder + assetId.str+assetIdGetFileExtension(assetId).map(a=>"."+a).getOrElse(""))
+                if(debug) verbose(l"Export: (File already exists ==> ) Save Asset (${showString(assetId.str)}) to ${showString(path.toString)}")
+              }
+              if(!zip.fileExists(path.get)) zip.writeFile(path.get,is)
+            })
+            if(debug) verbose(l"Export: Asset (${showString(assetId.str)}) saved to ${showString(path.toString)}")
           })
-        })
         }catch{
           case e: Throwable => verbose(l"EXPORT - ERROR: ${showString(e.toString)}")
         }finally{
@@ -593,9 +600,16 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
           }
         }
       }
-      zmsg.assetService.loadContentById(assetId, None).withTimeout(Duration.fromNanos(waitTime)).map(acc).onFailure({case e=>
-        zmsg.assetService.loadPublicContentById(assetId,convId).withTimeout(Duration.fromNanos(waitTime)).map(acc).onFailure({case e2=>
-          verbose(l"FAILURE LOADING FILE : ${showString(e.toString)} AND ${showString(e2.toString)}")
+      if(debug) verbose(l"Export: Try Asset download (${showString(assetId.str)})")
+      val callback=new ProgressCallback {
+        override def updated(progress: Long, total: Option[Long]): Unit = {
+          if(debug) verbose(l"Export: Asset download progress: ${showString(progress.toString)}/${showString(total.map(l=>l.toString).getOrElse("?"))}")
+        }
+      }
+      zmsg.assetService.loadContentById(assetId, Some(callback)).withTimeout(Duration.fromNanos(waitTime)).map(acc).onFailure({case e=>
+        if(debug) verbose(l"Export: Asset not found locally, try public content (${showString(assetId.str)})")
+        zmsg.assetService.loadPublicContentById(assetId,convId, Some(callback)).withTimeout(Duration.fromNanos(waitTime)).map(acc).onFailure({case e2=>
+          verbose(l"FAILURE LOADING ASSET : ${showString(e.toString)} AND ${showString(e2.toString)}")
           lockObject.synchronized {
             lockObject.notifyAll()
           }
