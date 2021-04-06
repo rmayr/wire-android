@@ -1258,6 +1258,7 @@
     <string name="export_file_not_set">The export file is not defined</string>
     <string name="export_done">Export done</string>
     <string name="include_media_files">Include media files</string>
+    <string name="include_profile_pictures">Include profile pictures</string>
     <string name="include_html_files">Include HTML-Viewer files</string>
     <string name="enable_export_date_from">Enable export date from</string>
     <string name="date_from">Date from</string>
@@ -1265,6 +1266,13 @@
     <string name="date_to">Date to</string>
     <string name="dots">…</string>
     <string name="filename">Filename</string>
+    <string name="current_state">Current state</string>
+    <string name="conversations_exported">Conversations exported</string>
+    <string name="users_exported">Users exported</string>
+    <string name="messages_exported">Messages exported</string>
+    <string name="file_export">File export</string>
+    <string name="cancel_export">Cancel export</string>
+
 
     <plurals name="participants_divider_services">
         <item quantity="zero">SERVICES</item>

@@ -48,9 +48,13 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
   private var zip: ExportZip= _
   private val debug=true
   private val waitTime=30000000000L // 30 seconds (in nanoseconds)
-  val lockObject = new AtomicBoolean(false)
+  private val lockObject = new AtomicBoolean(false)
+  private val exportProgress=new ExportProgress(this)
+
+  def getExportProgress: ExportProgress = { exportProgress }
 
   def export(convIds: Seq[ConvId]): Unit = {
+    exportProgress.currentState=ExportProgressState.INIT
     if(exportController.exportFile.isEmpty){
       Toast.makeText(WireApplication.APP_INSTANCE.getApplicationContext,
         WireApplication.APP_INSTANCE.getApplicationContext.getString(R.string.export_file_not_set),Toast.LENGTH_LONG)
@@ -65,8 +69,10 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
     })
 
     verbose(l"------------ START EXPORT ------------")
+    exportProgress.currentState=ExportProgressState.STARTED
+
     if(debug) verbose(l"FILE: ${showString(exportController.exportFile.get.toString)}")
-    zip=new ExportZip(WireApplication.APP_INSTANCE.getContentResolver.openFileDescriptor(exportController.exportFile.get, "rwt"))
+    zip=new ExportZip(WireApplication.APP_INSTANCE.getContentResolver.openFileDescriptor(exportController.exportFile.get, "rwt"), exportController)
 
     val root = doc.createElement("chatexport")
     doc.appendChild(root)
@@ -74,84 +80,113 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
     val users=addElement(root,"users")
 
     if(debug) verbose(l"############ Export Conversations ############")
+    exportProgress.currentState=ExportProgressState.CONVERSATIONS
+    exportProgress.conversationsTotal=convIds.size
     // ADD CONVERSATIONS
-    convIds.foreach(cid=>conversations.appendChild(createConversationElement(cid)))
+    try{
+      for (cid <- convIds) {
+        if(exportController.cancelExport) throw new Exception
+        conversations.appendChild(createConversationElement(cid))
+      }
+    }catch{case _: Exception =>}
 
     if(debug) verbose(l"############ Export Users ############")
-    var selfId: Option[UserId]=None
-    zmsg.users.selfUser.future.withTimeout(Duration.fromNanos(waitTime)).recover({
-      case t =>
-        verbose(l"######## EXPORT ERROR 02 - SELF ########")
-        t.printStackTrace()
-        return
-    }).onSuccess{case u=>selfId=Some(u.id)}
-    // ADD USERS
-    val userListDist=userList.toList.distinct
-    if(debug) verbose(l"Export: Export user amount: ${showString(userListDist.size.toString)}")
-    val userAmount=new AtomicInteger(userListDist.size)
-    userListDist.foreach(u=>exportController.usersController.user(u).future
-        .withTimeout(Duration.fromNanos(waitTime))
-        .recover({
-          case _ =>
-            verbose(l"##### EXPORT ERROR 04 - USER NOT FOUND (using empty userdata) #####")
-            new UserData(u, name="???", searchKey = SearchKey.Empty)
-        }).foreach(ud=>{
-          userListDist.synchronized{
-            if(debug) verbose(l"Export: User >> ID - ${showString(ud.id.toString)}")
-            val user=addElement(users, "user")
-            if(selfId.nonEmpty && selfId.get.equals(ud.id)) user.setAttribute("isSelf","true")
-            addElement(user,"userid",ud.id.str)
-            addElement(user,"name",ud.name.str)
-            addElement(user,"accent_color",ud.accent.toString)
-            if(debug) verbose(l"Export: User >> ID - ${showString(ud.id.toString)} >> required fields exported")
-            ud.handle.foreach(h=>addElement(user,"username",h.string))
-            ud.teamId.foreach(tid=>addElement(user,"teamid",tid.str))
-            ud.email.foreach(em=>addElement(user,"email",em.str))
-            ud.phone.foreach(p=>addElement(user,"phone",p.str))
-            ud.trackingId.foreach(tid=>addElement(user,"trackingid",tid.str))
-            ud.picture.foreach(p=>{
-              (p match {
-                case p: PictureUploaded => saveAssetIdAndGetFilename(p.id, profilePath).orElse(Some(p.id.str))
-                case p: PictureNotUploaded => saveAssetIdAndGetFilename(AssetId.apply(p.id.str), profilePath).orElse(Some(p.id.str))
-                case _ => None
-              }).foreach(path=>{
-                val pic=addElement(user,"picture", path)
-                addAttribute(pic,"uploaded",p.isInstanceOf[PictureUploaded].toString)
-              })
-            })
-            if(ud.fields.nonEmpty) addElement(user,"userfields",ud.fields.toString)
-            if(ud.permissions._1!=0 || ud.permissions._2!=0) addElement(user,"permission",ud.permissions._1+" "+ud.permissions._2)
-            if(debug) verbose(l"Export: User done >> ID - ${showString(ud.id.toString)}")
-            userAmount.synchronized{
-              userAmount.decrementAndGet()
-              userAmount.notifyAll()
+    if(!exportController.cancelExport){
+      exportProgress.currentState=ExportProgressState.USERS
+      var selfId: Option[UserId]=None
+      zmsg.users.selfUser.future.withTimeout(Duration.fromNanos(waitTime)).recover({
+        case t =>
+          verbose(l"######## EXPORT ERROR 02 - SELF ########")
+          t.printStackTrace()
+          return
+      }).onSuccess{case u=>selfId=Some(u.id)}
+      // ADD USERS
+      val userListDist=userList.toList.distinct
+      if(debug) verbose(l"Export: Export user amount: ${showString(userListDist.size.toString)}")
+      exportProgress.usersTotal=userListDist.size
+      val userAmount=new AtomicInteger(userListDist.size)
+      userListDist.takeWhile(_ => !exportController.cancelExport).foreach(u=>exportController.usersController.user(u).future
+          .withTimeout(Duration.fromNanos(waitTime))
+          .recover({
+            case _ =>
+              verbose(l"##### EXPORT ERROR 04 - USER NOT FOUND (using empty userdata) #####")
+              new UserData(u, name="???", searchKey = SearchKey.Empty)
+          }).foreach(ud=>{
+            userListDist.synchronized{
+              if(!exportController.cancelExport){
+                if(debug) verbose(l"Export: User >> ID - ${showString(ud.id.toString)}")
+                val user=addElement(users, "user")
+                if(selfId.nonEmpty && selfId.get.equals(ud.id)) user.setAttribute("isSelf","true")
+                addElement(user,"userid",ud.id.str)
+                addElement(user,"name",ud.name.str)
+                addElement(user,"accent_color",ud.accent.toString)
+                if(debug) verbose(l"Export: User >> ID - ${showString(ud.id.toString)} >> required fields exported")
+                ud.handle.foreach(h=>addElement(user,"username",h.string))
+                ud.teamId.foreach(tid=>addElement(user,"teamid",tid.str))
+                ud.email.foreach(em=>addElement(user,"email",em.str))
+                ud.phone.foreach(p=>addElement(user,"phone",p.str))
+                ud.trackingId.foreach(tid=>addElement(user,"trackingid",tid.str))
+                if(exportController.exportProfilePictures){
+                  ud.picture.foreach(p=>{
+                    (p match {
+                      case p: PictureUploaded => saveAssetIdAndGetFilename(p.id, profilePath).orElse(Some(p.id.str))
+                      case p: PictureNotUploaded => saveAssetIdAndGetFilename(AssetId.apply(p.id.str), profilePath).orElse(Some(p.id.str))
+                      case _ => None
+                    }).foreach(path=>{
+                      val pic=addElement(user,"picture", path)
+                      addAttribute(pic,"uploaded",p.isInstanceOf[PictureUploaded].toString)
+                    })
+                  })
+                }
+                if(ud.fields.nonEmpty) addElement(user,"userfields",ud.fields.toString)
+                if(ud.permissions._1!=0 || ud.permissions._2!=0) addElement(user,"permission",ud.permissions._1+" "+ud.permissions._2)
+                if(debug) verbose(l"Export: User done >> ID - ${showString(ud.id.toString)}")
+              }
+              userAmount.synchronized{
+                userAmount.decrementAndGet()
+                userAmount.notifyAll()
+              }
             }
-          }
-        }))
-    userAmount.synchronized{
-      while(userAmount.get()>0){
-        if(debug) verbose(l"Export: Wait for users to be exported: ${showString(userAmount.get().toString)}")
-        userAmount.wait()
+          }))
+      userAmount.synchronized{
+        while(userAmount.get()>0 && !exportController.cancelExport){
+          exportProgress.usersDone=exportProgress.usersTotal-userAmount.get()
+          if(debug) verbose(l"Export: Wait for users to be exported: ${showString(userAmount.get().toString)}")
+          userAmount.wait()
+        }
+        if(!exportController.cancelExport) exportProgress.usersDone=exportProgress.usersTotal
       }
     }
 
     if(debug) verbose(l"############ Export XML to ZIP ############")
-    val transformerFactory = TransformerFactory.newInstance
-    val transformer = transformerFactory.newTransformer
-    transformer.setOutputProperty(OutputKeys.INDENT, "yes")
-    transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "2")
-    transformer.setOutputProperty(OutputKeys.ENCODING,"UTF-16")
-    val domSource = new DOMSource(doc)
-    zip.writeFile(dataPath+"chats.xml", o=>{
-      val streamResult = new StreamResult(o)
-      transformer.transform(domSource, streamResult)
-    })
-    if(exportController.includeHtml){
-      if(debug) verbose(l"############ Export HTML-VIEWER ############")
-      zip.addHtmlViewerFiles()
+    if(!exportController.cancelExport){
+      exportProgress.currentState=ExportProgressState.XML
+      val transformerFactory = TransformerFactory.newInstance
+      val transformer = transformerFactory.newTransformer
+      transformer.setOutputProperty(OutputKeys.INDENT, "yes")
+      transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "2")
+      transformer.setOutputProperty(OutputKeys.ENCODING,"UTF-16")
+      val domSource = new DOMSource(doc)
+      zip.writeFile(dataPath+"chats.xml", o=>{
+        val streamResult = new StreamResult(o)
+        transformer.transform(domSource, streamResult)
+      })
+      if(exportController.includeHtml && !exportController.cancelExport){
+        if(debug) verbose(l"############ Export HTML-VIEWER ############")
+        exportProgress.currentState=ExportProgressState.HTML
+        zip.addHtmlViewerFiles()
+      }
     }
     zip.close()
     verbose(l"------------- END EXPORT -------------")
+    if(exportController.cancelExport) {
+      try{
+        WireApplication.APP_INSTANCE.getContentResolver.delete(exportController.exportFile.get, null)
+      }catch{case e: NoSuchMethodError =>}
+      exportProgress.currentState=ExportProgressState.CANCELED
+    } else
+      exportProgress.currentState=ExportProgressState.DONE
+    Thread.sleep(5000)
   }
 
   private def createConversationElement(convId: ConvId): Element = {
@@ -175,19 +210,21 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
       cd.link.foreach(l=>addElement(conversation,"link",l.url))
     }))
     // ADD USERS OF CONVERSATION AND THEIR ROLES
-    if(debug) verbose(l"Export: Users and roles")
-    val userroles=addElement(conversation,"userroles")
-    val userAddFut=exportController.convController.convMembers(convId).future.map(m=>m.foreach({case (uid,cr)=>
-      if(debug) verbose(l"Export: Add users and roles >> User-ID - ${showString(uid.toString)}")
-      val userrole=addElement(userroles, "userrole")
-      addAttribute(userrole,"userid",uid.str)
-      addAttribute(userrole,"role",cr.label)
-      userList+=uid
-    }))
-    Await.ready(userAddFut, Duration.fromNanos(waitTime)).onFailure({case t =>
-      verbose(l"##### EXPORT ERROR 05 - USERROLE #####")
-      t.printStackTrace()
-    })
+    if(!exportController.cancelExport) {
+      if (debug) verbose(l"Export: Users and roles")
+      val userroles = addElement(conversation, "userroles")
+      val userAddFut = exportController.convController.convMembers(convId).future.map(m => m.foreach({ case (uid, cr) =>
+        if (debug) verbose(l"Export: Add users and roles >> User-ID - ${showString(uid.toString)}")
+        val userrole = addElement(userroles, "userrole")
+        addAttribute(userrole, "userid", uid.str)
+        addAttribute(userrole, "role", cr.label)
+        userList += uid
+      }))
+      Await.ready(userAddFut, Duration.fromNanos(waitTime)).onFailure({ case t =>
+        verbose(l"##### EXPORT ERROR 05 - USERROLE #####")
+        t.printStackTrace()
+      })
+    }
     // ADD MESSAGES
     if(debug) verbose(l"Export: Messages >> ID - ${showString(convId.toString)}")
     val messagesElem=addElement(conversation, "messages")
@@ -204,7 +241,15 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
       ).onComplete(
         {
           case Success(messages) =>
-            messages.sortBy(md=>md.time).foreach(msg=>messagesElem.appendChild(createMessageElement(msg)))
+            exportProgress.messagesCurrentConversationTotal=messages.size
+            exportProgress.messagesCurrentConversationDone=0
+            try{
+              for (msg <- messages.sortBy(md => md.time)) {
+                if(exportController.cancelExport) throw new Exception
+                messagesElem.appendChild(createMessageElement(msg))
+                exportProgress.messagesCurrentConversationDone+=1
+              }
+            }catch{case _: Exception =>}
             lockObject.synchronized{
               lockObject.notifyAll()
             }
@@ -217,6 +262,8 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
       )
       lockObject.wait()
     }
+    exportProgress.conversationsDone+=1
+    exportProgress.messagesCurrentConversationTotal = -1
     conversation
   }
 
@@ -603,6 +650,9 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
       if(debug) verbose(l"Export: Try Asset download (${showString(assetId.str)})")
       val callback=new ProgressCallback {
         override def updated(progress: Long, total: Option[Long]): Unit = {
+          exportProgress.assetDownloadTotal=total.getOrElse(-1)
+          exportProgress.assetDownloadDone=progress
+          if(total.nonEmpty && total.get.equals(progress)) exportProgress.assetDownloadDone = -1
           if(debug) verbose(l"Export: Asset download progress: ${showString(progress.toString)}/${showString(total.map(l=>l.toString).getOrElse("?"))}")
         }
       }
@@ -616,6 +666,8 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
         })
       })
       lockObject.wait()
+      exportProgress.assetDownloadDone = -1
+      exportProgress.assetDownloadTotal = -1
     }
     path
   }

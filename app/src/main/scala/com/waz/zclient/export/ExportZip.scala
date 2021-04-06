@@ -11,7 +11,7 @@ import com.waz.zclient.log.LogUI.{showString, verbose, _}
 
 import scala.collection.mutable
 
-class ExportZip(fileDescriptor: ParcelFileDescriptor) extends DerivedLogTag {
+class ExportZip(fileDescriptor: ParcelFileDescriptor, exportController: ExportController) extends DerivedLogTag {
   private val fileOutputStream = new FileOutputStream(fileDescriptor.getFileDescriptor)
   private val zip = new ZipOutputStream(fileOutputStream)
   private val files = mutable.HashSet[String]()
@@ -24,7 +24,9 @@ class ExportZip(fileDescriptor: ParcelFileDescriptor) extends DerivedLogTag {
         zip.putNextEntry(new ZipEntry(filepath))
         val b = new Array[Byte](1024)
         var count = 0
-        while({count=in.read(b);count}>0) zip.write(b,0,count)
+        while({count=in.read(b);count}>0 && !exportController.cancelExport){
+          zip.write(b,0,count)
+        }
         zip.closeEntry()
       }
     }
@@ -41,7 +43,7 @@ class ExportZip(fileDescriptor: ParcelFileDescriptor) extends DerivedLogTag {
       }
     }
   }
-  def fileExists(filepath: String): Boolean ={
+  def fileExists(filepath: String): Boolean = {
     this.synchronized{
       files.contains(filepath)
     }
@@ -62,7 +64,7 @@ class ExportZip(fileDescriptor: ParcelFileDescriptor) extends DerivedLogTag {
     val is=WireApplication.APP_INSTANCE.getResources.openRawResource(R.raw.export_html_viewer)
     val zipIs=new ZipInputStream(is)
     var zipEntry=zipIs.getNextEntry
-    while(zipEntry!=null){
+    while(zipEntry!=null && !exportController.cancelExport){
       writeFile(zipEntry.getName,zipIs)
       zipEntry=zipIs.getNextEntry
     }

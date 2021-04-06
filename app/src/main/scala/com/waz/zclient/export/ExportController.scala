@@ -13,10 +13,10 @@ import com.waz.zclient.log.LogUI.{showString, verbose, _}
 import com.waz.zclient.messages.UsersController
 import com.waz.zclient.{Injectable, Injector, WireApplication}
 import com.wire.signals.{EventContext, EventStream, Signal, SourceStream}
-
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.Random
-import com.waz.zclient.{R}
+import com.waz.zclient.R
+import io.reactivex.subjects.BehaviorSubject
 
 class ExportController(implicit injector: Injector, context: Context, ec: EventContext)
   extends Injectable with DerivedLogTag {
@@ -26,17 +26,29 @@ class ExportController(implicit injector: Injector, context: Context, ec: EventC
   val usersController: UsersController = inject[UsersController]
   val onShowExport: SourceStream[Option[Integer]] = EventStream[Option[Integer]]()
 
+  val currentExport: BehaviorSubject[Option[ExportProgress]] = BehaviorSubject.createDefault(None)
   var exportFile: Option[Uri] = None
   var timeFrom: Option[RemoteInstant] = None
   var timeTo: Option[RemoteInstant] = None
   var exportFiles = true
+  var exportProfilePictures = true
   var includeHtml = true
+  var cancelExport = false
 
-  def export(callbackFinished: () => Unit) : Unit = {
-    convController.currentConvId.future.onSuccess{
-      case id => {
-        new ExportConverter(ExportController.this).export(Seq(id))
-        callbackFinished()
+  def export() : Unit = {
+    currentExport.synchronized{
+      convController.currentConvId.future.onSuccess{
+        case id =>
+          val newExport = new ExportConverter(ExportController.this)
+          currentExport.onNext(Some(newExport.getExportProgress))
+          try{
+            newExport.export(Seq(id))
+          }catch{
+            case e: Exception => e.printStackTrace()
+          }finally{
+            currentExport.onNext(None)
+            cancelExport = false
+          }
       }
     }
   }
