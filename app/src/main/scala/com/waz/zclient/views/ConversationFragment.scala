@@ -85,7 +85,8 @@ import scala.collection.immutable.ListSet
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import com.waz.threading.Threading._
-import com.waz.zclient.`export`.ExportController
+import com.waz.zclient.convExport.ExportController
+import com.waz.zclient.convExport.fragments.ExportConfigurationFragment
 
 class ConversationFragment extends FragmentHelper {
   import ConversationFragment._
@@ -368,8 +369,8 @@ class ConversationFragment extends FragmentHelper {
             cursorView.foreach(_.closeEditMessage(false))
             true
           case R.id.action_export_chat =>
-            //TODO implement
-            exportController.onShowExport ! None
+            exportController.exportConvIds = None
+            exportController.onShowExport ! Some(ExportConfigurationFragment.Tag)
             cursorView.foreach(_.closeEditMessage(false))
             keyboardController.hideKeyboardIfVisible()
             true

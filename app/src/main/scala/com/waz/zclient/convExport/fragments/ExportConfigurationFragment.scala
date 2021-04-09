@@ -1,4 +1,4 @@
-package com.waz.zclient.export.fragments;
+package com.waz.zclient.convExport.fragments;
 
 import java.text.DateFormat
 import java.util.Date
@@ -15,7 +15,7 @@ import android.widget.{Button, CompoundButton, DatePicker, LinearLayout, Progres
 import com.google.android.material.textfield.TextInputLayout
 import com.waz.model.RemoteInstant
 import com.waz.utils.returningF
-import com.waz.zclient.`export`.{ExportController, ExportProgress}
+import com.waz.zclient.convExport.{ExportController, ExportProgress}
 import com.waz.zclient.{FragmentHelper, R}
 import io.reactivex.functions.Consumer
 import android.icu.util.Calendar
@@ -25,7 +25,7 @@ import io.reactivex.disposables.Disposable
 
 class ExportConfigurationFragment extends FragmentHelper {
   private val SELECT_FILE_REQUEST = 1
-  private lazy val exportController         = inject[ExportController]
+  private lazy val exportController = inject[ExportController]
 
   private lazy val exportButton=view[Button](R.id.b__export_start).get
   private lazy val exportCancelButton=view[Button](R.id.export_cancel).get

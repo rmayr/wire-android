@@ -53,8 +53,8 @@ import com.waz.zclient.utils.ContextUtils
 import com.waz.zclient.views.ConversationFragment
 import com.waz.zclient.{FragmentHelper, R}
 import com.waz.threading.Threading._
-import com.waz.zclient.`export`.ExportController
-import com.waz.zclient.`export`.fragments.{ExportConfigurationFragment, ExportFragment}
+import com.waz.zclient.convExport.ExportController
+import com.waz.zclient.convExport.fragments.{ExportConfigurationFragment, ExportFragment}
 
 class ConversationManagerFragment extends FragmentHelper
   with ConversationScreenControllerObserver
@@ -75,7 +75,7 @@ class ConversationManagerFragment extends FragmentHelper
   private lazy val createConvController   = inject[CreateConversationController]
   private lazy val participantsController = inject[ParticipantsController]
   private lazy val keyboard               = inject[KeyboardController]
-  private lazy val exportController = inject[ExportController]
+  private lazy val exportController       = inject[ExportController]
 
   private var subs = Set.empty[com.wire.signals.Subscription]
 

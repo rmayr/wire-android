@@ -1,9 +1,10 @@
-package com.waz.zclient.`export`.fragments
+package com.waz.zclient.convExport.fragments
 
 import android.os.Bundle
 import android.view.{LayoutInflater, View, ViewGroup}
 import androidx.annotation.Nullable
 import com.waz.utils.returning
+import com.waz.zclient.convExport.ExportController
 import com.waz.zclient.log.LogUI.verbose
 import com.waz.zclient.log.LogUI._
 import com.waz.zclient.{ManagerFragment, R}
@@ -14,6 +15,7 @@ import scala.concurrent.Future
 class ExportFragment extends ManagerFragment {
   import ExportFragment._
   override def contentId: Int = R.id.fl__export__container
+  private lazy val exportController = inject[ExportController]
 
   override def onCreateView(inflater: LayoutInflater, container: ViewGroup, savedInstanceState: Bundle): View =
     inflater.inflate(R.layout.fragment_export, container, false)
@@ -26,8 +28,12 @@ class ExportFragment extends ManagerFragment {
         (getStringArg(PageToOpenArg) match {
           case Some(ExportConfigurationFragment.Tag) =>
             Future.successful((new ExportConfigurationFragment, ExportConfigurationFragment.Tag))
-          case _ =>
+          case Some(ExportSelectionFragment.Tag) if exportController.currentExport.getValue.isEmpty =>
+            Future.successful((new ExportSelectionFragment, ExportSelectionFragment.Tag))
+          case Some(ExportSelectionFragment.Tag) if exportController.currentExport.getValue.nonEmpty => // currently running export
             Future.successful((new ExportConfigurationFragment, ExportConfigurationFragment.Tag))
+          case _ =>
+            Future.successful((new ExportSelectionFragment, ExportSelectionFragment.Tag))
         }).map {
           case (f, tag) =>
             getChildFragmentManager.beginTransaction
@@ -48,7 +54,7 @@ class ExportFragment extends ManagerFragment {
 
 object ExportFragment {
   val TAG: String = classOf[ExportFragment].getName
-  private val PageToOpenArg = "ARG__FIRST__PAGE"
+  val PageToOpenArg = "ARG__FIRST__PAGE"
 
   def newInstance(page: Option[String]): ExportFragment =
     returning(new ExportFragment) { f =>

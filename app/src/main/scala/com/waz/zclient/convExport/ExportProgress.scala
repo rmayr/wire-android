@@ -1,4 +1,4 @@
-package com.waz.zclient.`export`
+package com.waz.zclient.convExport
 
 class ExportProgress(exportConverter: ExportConverter) {
   var conversationsTotal: Int = 0

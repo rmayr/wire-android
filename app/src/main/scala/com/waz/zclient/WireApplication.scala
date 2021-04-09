@@ -54,7 +54,7 @@ import com.waz.sync.{SyncHandler, SyncRequestService}
 import com.waz.threading.Threading
 import com.waz.utils.{SafeBase64, returning}
 import com.waz.utils.wrappers.GoogleApi
-import com.waz.zclient.`export`.ExportController
+import com.waz.zclient.convExport.ExportController
 import com.waz.zclient.appentry.controllers.{CreateTeamController, InvitationsController}
 import com.waz.zclient.assets.{AndroidUriHelper, AssetDetailsServiceImpl, AssetPreviewServiceImpl}
 import com.waz.zclient.calling.controllers.{CallController, CallStartController}

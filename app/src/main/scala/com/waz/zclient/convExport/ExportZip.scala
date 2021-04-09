@@ -1,4 +1,4 @@
-package com.waz.zclient.`export`
+package com.waz.zclient.convExport
 
 import java.io.{FileOutputStream, InputStream, OutputStream}
 import java.util.zip.{ZipEntry, ZipInputStream, ZipOutputStream}
