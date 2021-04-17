@@ -1,6 +1,6 @@
 package com.waz.zclient.convExport
 
-import java.io.File
+import java.io.{File, FileNotFoundException}
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.atomic.AtomicInteger
@@ -27,7 +27,7 @@ import org.w3c.dom.Element
 
 import scala.util.{Failure, Success, Try}
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.{Await, Future, blocking}
+import scala.concurrent.{Await, ExecutionContext, Future, blocking}
 import com.waz.zclient.R
 import com.waz.znet2.http.HttpClient.ProgressCallback
 
@@ -53,8 +53,9 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
   def getExportProgress: ExportProgress = { exportProgress }
 
   def export(convIds: Seq[ConvId]): Unit = {
+    var sleepTimeAtTheEnd=5000
     exportProgress.currentState=ExportProgressState.INIT
-    if(exportController.exportFile.isEmpty){
+    if(exportController.exportFile.getValue.isEmpty){
       Toast.makeText(WireApplication.APP_INSTANCE.getApplicationContext,
         WireApplication.APP_INSTANCE.getApplicationContext.getString(R.string.export_file_not_set),Toast.LENGTH_LONG)
       verbose(l"############## EXPORT FAILED ##############")
@@ -70,27 +71,36 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
     verbose(l"------------ START EXPORT ------------")
     exportProgress.currentState=ExportProgressState.STARTED
 
-    if(debug) verbose(l"FILE: ${showString(exportController.exportFile.get.toString)}")
-    zip=new ExportZip(WireApplication.APP_INSTANCE.getContentResolver.openFileDescriptor(exportController.exportFile.get, "rwt"), exportController)
+    if(debug) verbose(l"FILE: ${showString(exportController.exportFile.getValue.get.toString)}")
+    try{
+      zip=new ExportZip(WireApplication.APP_INSTANCE.getContentResolver.openFileDescriptor(exportController.exportFile.getValue.get, "rwt"), exportController)
+    }catch{
+      case e: FileNotFoundException =>
+        verbose(l"Error: Export file does not exist. Cancel export.")
+        exportController.exportFile.onNext(None)
+        exportController.cancelExport=true
+        sleepTimeAtTheEnd=0
+    }
 
     val root = doc.createElement("chatexport")
     doc.appendChild(root)
     val conversations=addElement(root,"conversations")
     val users=addElement(root,"users")
 
-    if(debug) verbose(l"############ Export Conversations ############")
-    exportProgress.currentState=ExportProgressState.CONVERSATIONS
-    exportProgress.conversationsTotal=convIds.size
-    // ADD CONVERSATIONS
-    try{
-      for (cid <- convIds) {
-        if(exportController.cancelExport) throw new Exception
-        conversations.appendChild(createConversationElement(cid))
-      }
-    }catch{case _: Exception =>}
-
-    if(debug) verbose(l"############ Export Users ############")
     if(!exportController.cancelExport){
+      if(debug) verbose(l"############ Export Conversations ############")
+      exportProgress.currentState=ExportProgressState.CONVERSATIONS
+      exportProgress.conversationsTotal=convIds.size
+      // ADD CONVERSATIONS
+      try{
+        for (cid <- convIds) {
+          if(exportController.cancelExport) throw new Exception
+          conversations.appendChild(createConversationElement(cid))
+        }
+      }catch{case _: Exception =>}
+    }
+    if(!exportController.cancelExport){
+      if(debug) verbose(l"############ Export Users ############")
       exportProgress.currentState=ExportProgressState.USERS
       var selfId: Option[UserId]=None
       zmsg.users.selfUser.future.withTimeout(Duration.fromNanos(waitTime)).recover({
@@ -158,9 +168,8 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
         if(!exportController.cancelExport) exportProgress.usersDone=exportProgress.usersTotal
       }
     }
-
-    if(debug) verbose(l"############ Export XML to ZIP ############")
     if(!exportController.cancelExport){
+      if(debug) verbose(l"############ Export XML to ZIP ############")
       exportProgress.currentState=ExportProgressState.XML
       val transformerFactory = TransformerFactory.newInstance
       val transformer = transformerFactory.newTransformer
@@ -178,16 +187,17 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
         zip.addHtmlViewerFiles()
       }
     }
-    zip.close()
+    if(zip!=null) zip.close()
     verbose(l"------------- END EXPORT -------------")
     if(exportController.cancelExport) {
       try{
-        WireApplication.APP_INSTANCE.getContentResolver.delete(exportController.exportFile.get, null)
+        if(exportController.exportFile.getValue.nonEmpty)
+          WireApplication.APP_INSTANCE.getContentResolver.delete(exportController.exportFile.getValue.get, null)
       }catch{case e: NoSuchMethodError =>}
       exportProgress.currentState=ExportProgressState.CANCELED
     } else
       exportProgress.currentState=ExportProgressState.DONE
-    Thread.sleep(5000)
+    Thread.sleep(sleepTimeAtTheEnd)
   }
 
   private def createConversationElement(convId: ConvId): Element = {
@@ -201,7 +211,16 @@ class ExportConverter(exportController: ExportController) extends DerivedLogTag{
       addElement(conversation,"creator",cd.creator.str)
       addElement(conversation,"convType",cd.convType.toString)
       addElement(conversation,"verified",cd.verified.toString)
-      cd.name.foreach(n=>addElement(conversation,"name",n.str))
+
+      cd.name.foreach(n=>{
+        val elem=addElement(conversation,"name",n.str)
+        val fut=exportController.convController.conversationName(convId).future
+        fut.onSuccess{
+          case mn=>elem.setTextContent(mn.str)
+        }(ExecutionContext.global)
+        Await.ready(fut,Duration.fromNanos(waitTime))
+      })
+
       cd.team.foreach(tid=>addElement(conversation,"teamid",tid.str))
       if(cd.access.nonEmpty){
         val access=addElement(conversation,"access")

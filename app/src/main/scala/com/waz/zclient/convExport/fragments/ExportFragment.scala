@@ -1,7 +1,9 @@
 package com.waz.zclient.convExport.fragments
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.{LayoutInflater, View, ViewGroup}
+import android.widget.{FrameLayout, LinearLayout}
 import androidx.annotation.Nullable
 import com.waz.utils.returning
 import com.waz.zclient.convExport.ExportController
@@ -9,47 +11,45 @@ import com.waz.zclient.log.LogUI.verbose
 import com.waz.zclient.log.LogUI._
 import com.waz.zclient.{ManagerFragment, R}
 
-import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.Future
-
 class ExportFragment extends ManagerFragment {
   import ExportFragment._
   override def contentId: Int = R.id.fl__export__container
   private lazy val exportController = inject[ExportController]
+  private var childView: Option[LinearLayout with ExportFragmentChild] = None
+  private val activityStarter: (Intent, Int) => Unit=(intent, resId) => {startActivityForResult(intent, resId)}
 
   override def onCreateView(inflater: LayoutInflater, container: ViewGroup, savedInstanceState: Bundle): View =
     inflater.inflate(R.layout.fragment_export, container, false)
 
   override def onViewCreated(view: View, @Nullable savedInstanceState: Bundle): Unit = {
     verbose(l"onViewCreated.")
-    withChildFragmentOpt(R.id.fl__export__container) {
-      case Some(_) => //no action to take, view was already set
+    childView=Some(getStringArg(PageToOpenArg) match {
+      case Some(ExportConfigurationFragment.Tag) =>
+          new ExportConfigurationFragment(getContext, activityStarter)
+      case Some(ExportSelectionView.Tag) if exportController.currentExport.getValue.isEmpty =>
+          new ExportSelectionView(getContext, () => { exportController.onShowExport ! Some(ExportConfigurationFragment.Tag) })
+      case Some(ExportSelectionView.Tag) if exportController.currentExport.getValue.nonEmpty => // currently running export
+        new ExportConfigurationFragment(getContext, activityStarter)
       case _ =>
-        (getStringArg(PageToOpenArg) match {
-          case Some(ExportConfigurationFragment.Tag) =>
-            Future.successful((new ExportConfigurationFragment, ExportConfigurationFragment.Tag))
-          case Some(ExportSelectionFragment.Tag) if exportController.currentExport.getValue.isEmpty =>
-            Future.successful((new ExportSelectionFragment, ExportSelectionFragment.Tag))
-          case Some(ExportSelectionFragment.Tag) if exportController.currentExport.getValue.nonEmpty => // currently running export
-            Future.successful((new ExportConfigurationFragment, ExportConfigurationFragment.Tag))
-          case _ =>
-            Future.successful((new ExportSelectionFragment, ExportSelectionFragment.Tag))
-        }).map {
-          case (f, tag) =>
-            getChildFragmentManager.beginTransaction
-              .replace(R.id.fl__export__container, f, tag)
-              .addToBackStack(tag)
-              .commit
-        }
-    }
+        new ExportSelectionView(getContext, () => { exportController.onShowExport ! Some(ExportConfigurationFragment.Tag) })
+    })
+    childView.foreach(v=>getView.findViewById(R.id.fl__export__container).asInstanceOf[FrameLayout].addView(v))
   }
 
   override def onBackPressed(): Boolean = {
-    getChildFragmentManager.popBackStack()
     getFragmentManager.popBackStack()
     true
   }
 
+  override def onDestroyView(): Unit = {
+    childView.foreach(v=>v.onDestroyView())
+    super.onDestroyView()
+  }
+
+  override def onActivityResult(requestCode: Int, resultCode: Int, resultData: Intent): Unit = {
+    childView.foreach(v=>v.onActivityResult(requestCode, resultCode, resultData))
+    super.onActivityResult(requestCode, resultCode, resultData)
+  }
 }
 
 object ExportFragment {
@@ -62,4 +62,9 @@ object ExportFragment {
         f.setArguments(returning(new Bundle)(_.putString(PageToOpenArg, p)))
       }
     }
+}
+
+trait ExportFragmentChild{
+  def onDestroyView(): Unit = {}
+  def onActivityResult(requestCode: Int, resultCode: Int, resultData: Intent): Unit = {}
 }

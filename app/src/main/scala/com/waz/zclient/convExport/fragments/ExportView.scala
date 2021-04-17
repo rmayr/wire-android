@@ -1,20 +1,16 @@
 package com.waz.zclient.convExport.fragments
 
-import android.content.Context
+import android.content.{Context, Intent}
 import android.os.Bundle
 import android.util.AttributeSet
 import android.view.View
 import android.widget.LinearLayout
-import androidx.fragment.app.Fragment
 import com.waz.log.BasicLogging.LogTag.DerivedLogTag
-import com.waz.zclient.ViewHelper
+import com.waz.utils.returning
+import com.waz.zclient.{R, ViewHelper}
 import com.waz.zclient.convExport.ExportController
-import com.waz.zclient.utils.BackStackKey
-import com.wire.signals.Signal
-import com.waz.zclient.R
-
-import scala.concurrent.blocking
-import scala.concurrent.{ExecutionContext, Future}
+import com.waz.zclient.preferences.PreferencesActivity
+import com.waz.zclient.utils.{BackStackKey, BackStackNavigator}
 
 class ExportView(context: Context, attrs: AttributeSet, style: Int)
   extends LinearLayout(context, attrs, style)
@@ -24,51 +20,41 @@ class ExportView(context: Context, attrs: AttributeSet, style: Int)
   def this(context: Context) = this(context, null, 0)
 
   private lazy val exportController = inject[ExportController]
+  private lazy val nextSelectionPage=() => loadNextView(ExportConfigurationFragment.Tag)
+  private val activityStarter=(intent, resId) => {startActivityForResult(intent, resId)}
 
   def loadView(page: String): Unit = {
     page match {
       case ExportConfigurationFragment.Tag =>
-        load(new ExportConfigurationFragment)
-      case ExportSelectionFragment.Tag if exportController.currentExport.getValue.isEmpty =>
-        load(new ExportSelectionFragment)
-      case ExportSelectionFragment.Tag if exportController.currentExport.getValue.nonEmpty=>
-        load(new ExportConfigurationFragment)
+        load(new ExportConfigurationFragment(context, activityStarter))
+      case ExportSelectionView.Tag if exportController.currentExport.getValue.isEmpty =>
+        load(new ExportSelectionView(context, nextSelectionPage))
+      case ExportSelectionView.Tag if exportController.currentExport.getValue.nonEmpty=>
+        load(new ExportConfigurationFragment(context, activityStarter))
       case _ =>
-        load(new ExportSelectionFragment)
+        load(new ExportSelectionView(context, nextSelectionPage))
     }
   }
-  private def load(fragment: Fragment) = {
-
+  private def load(node: LinearLayout) = {
+    this.removeAllViews()
+    this.addView(node)
+  }
+  private def loadNextView(page: String): Unit ={
+    val navigator = inject[BackStackNavigator]
+    navigator.goTo(ExportKey(returning(new Bundle)(_.putString(ExportFragment.PageToOpenArg, page))))
+  }
+  private def startActivityForResult(intent: Intent, resultId: Int): Unit ={
+    context.asInstanceOf[PreferencesActivity].startActivityForResult(intent, resultId)
   }
 }
 
 case class ExportKey(args: Bundle = new Bundle()) extends BackStackKey(args){
-  private var view: Option[View] = None
   override def nameId: Int = R.string.pref_account_export_title
 
   override def layoutId: Int = R.layout.preferences_conversation_export
 
   override def onViewAttached(v: View): Unit = {
-    view.synchronized{
-      view=Some(v)
-      view.notifyAll()
-    }
-  }
-
-  def getView(): Signal[View] = {
-    view.synchronized {
-      if(view.nonEmpty) return Signal.const(view.get)
-    }
-    Signal.from(Future{
-      blocking{
-        view.synchronized{
-          while(view.isEmpty){
-            view.wait()
-          }
-          return Signal.const(view.get)
-        }
-      }
-    }(ExecutionContext.global))
+    v.asInstanceOf[ExportView].loadView(args.getString(ExportFragment.PageToOpenArg))
   }
 
   override def onViewDetached(): Unit = {}

@@ -49,7 +49,7 @@ import com.waz.zclient.utils.ViewUtils._
 import com.waz.zclient.utils.{BackStackKey, BackStackNavigator, RichView, StringUtils, UiStorage}
 import com.waz.zclient.{BuildConfig, _}
 import com.waz.threading.Threading._
-import com.waz.zclient.convExport.fragments.ExportKey
+import com.waz.zclient.convExport.fragments.{ExportKey, ExportSelectionView, ExportFragment}
 
 trait AccountView {
   val onNameClick:          EventStream[Unit]
@@ -382,8 +382,15 @@ class AccountViewController(view: AccountView)(implicit inj: Injector, ec: Event
   }
 
   view.onExportClick.onUi{ _ =>
-    navigator.goTo(ExportKey())
-    //navigator.goTo(ExportKey(returning(new Bundle)(_.putString(PageToOpenArg, ExportSelectionFragment.Tag))))
+    //context.asInstanceOf[BaseActivity]
+        //.getSupportFragmentManager
+        //.beginTransaction()
+        //.setTransition(FragmentTransaction.TRANSIT_FRAGMENT_FADE)
+        //.add(ExportFragment.newInstance(Some(ExportSelectionView.Tag)), ExportFragment.TAG)
+        //.addToBackStack(ExportFragment.TAG)
+        //.commit()
+    //navigator.goTo(ExportKey())
+    navigator.goTo(ExportKey(returning(new Bundle)(_.putString(ExportFragment.PageToOpenArg, ExportSelectionView.Tag))))
   }
 
   view.onDataUsageClick.onUi { _ =>

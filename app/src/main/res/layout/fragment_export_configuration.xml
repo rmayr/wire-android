@@ -12,7 +12,6 @@
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="?wireBackgroundCollection"
         android:fillViewport="true"
         >
 
@@ -149,6 +148,7 @@
             android:textStyle="bold"
             android:textSize="@dimen/wire__text_size__medium"
             android:layout_weight="1"
+            android:textColor="@color/black"
             android:text="@string/current_state"/>
 
         <TextView
@@ -158,6 +158,7 @@
             android:gravity="center"
             android:textSize="@dimen/wire__text_size__medium"
             android:layout_weight="1"
+            android:textColor="@color/black"
             android:text=""/>
 
         <TextView
@@ -167,6 +168,7 @@
             android:textStyle="bold"
             android:textSize="@dimen/wire__text_size__medium"
             android:layout_weight="1"
+            android:textColor="@color/black"
             android:text="@string/conversations_exported"/>
 
         <RelativeLayout
@@ -193,6 +195,7 @@
                     android:text=""
                     android:layout_weight="1"
                     android:textSize="@dimen/wire__text_size__regular"
+                    android:textColor="@color/black"
                     tools:ignore="RtlHardcoded" />
                 <TextView
                     android:layout_width="wrap_content"
@@ -201,6 +204,7 @@
                     android:text="/"
                     android:layout_weight="0"
                     android:textSize="@dimen/wire__text_size__regular"
+                    android:textColor="@color/black"
                     tools:ignore="HardcodedText" />
                 <TextView
                     android:id="@+id/export_progress_conversations_total"
@@ -210,6 +214,7 @@
                     android:text=""
                     android:layout_weight="1"
                     android:textSize="@dimen/wire__text_size__regular"
+                    android:textColor="@color/black"
                     tools:ignore="RtlHardcoded" />
             </LinearLayout>
         </RelativeLayout>
@@ -221,6 +226,7 @@
             android:textStyle="bold"
             android:textSize="@dimen/wire__text_size__medium"
             android:layout_weight="1"
+            android:textColor="@color/black"
             android:text="@string/users_exported"/>
 
         <RelativeLayout
@@ -247,6 +253,7 @@
                     android:text=""
                     android:layout_weight="1"
                     android:textSize="@dimen/wire__text_size__regular"
+                    android:textColor="@color/black"
                     tools:ignore="RtlHardcoded" />
                 <TextView
                     android:layout_width="wrap_content"
@@ -255,6 +262,7 @@
                     android:text="/"
                     android:layout_weight="0"
                     android:textSize="@dimen/wire__text_size__regular"
+                    android:textColor="@color/black"
                     tools:ignore="HardcodedText" />
                 <TextView
                     android:id="@+id/export_progress_users_total"
@@ -264,6 +272,7 @@
                     android:text=""
                     android:layout_weight="1"
                     android:textSize="@dimen/wire__text_size__regular"
+                    android:textColor="@color/black"
                     tools:ignore="RtlHardcoded" />
             </LinearLayout>
         </RelativeLayout>
@@ -275,6 +284,7 @@
             android:textStyle="bold"
             android:textSize="@dimen/wire__text_size__medium"
             android:layout_weight="1"
+            android:textColor="@color/black"
             android:text="@string/messages_exported"/>
 
         <RelativeLayout
@@ -302,6 +312,7 @@
                     android:text=""
                     android:layout_weight="1"
                     android:textSize="@dimen/wire__text_size__regular"
+                    android:textColor="@color/black"
                     tools:ignore="RtlHardcoded" />
                 <TextView
                     android:layout_width="wrap_content"
@@ -310,6 +321,7 @@
                     android:text="/"
                     android:layout_weight="0"
                     android:textSize="@dimen/wire__text_size__regular"
+                    android:textColor="@color/black"
                     tools:ignore="HardcodedText" />
                 <TextView
                     android:id="@+id/export_progress_messages_total"
@@ -319,6 +331,7 @@
                     android:text=""
                     android:layout_weight="1"
                     android:textSize="@dimen/wire__text_size__regular"
+                    android:textColor="@color/black"
                     tools:ignore="RtlHardcoded" />
             </LinearLayout>
         </RelativeLayout>
@@ -330,6 +343,7 @@
             android:textStyle="bold"
             android:textSize="@dimen/wire__text_size__medium"
             android:layout_weight="1"
+            android:textColor="@color/black"
             android:text="@string/file_export"/>
 
         <ProgressBar
@@ -342,6 +356,7 @@
             style="@style/Widget.AppCompat.ProgressBar.Horizontal"/>
 
         <ProgressBar
+            android:id="@+id/export_progress_running"
             android:layout_margin="10dp"
             android:layout_width="fill_parent"
             android:layout_height="fill_parent"
@@ -360,6 +375,7 @@
                 android:layout_height="wrap_content"
                 android:gravity="center"
                 android:text="@string/cancel_export"
+                android:textColor="@color/black"
                 android:textSize="@dimen/wire__text_size__medium" />
         </LinearLayout>
 
