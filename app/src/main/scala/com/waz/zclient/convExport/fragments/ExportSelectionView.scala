@@ -59,9 +59,12 @@ class ExportSelectionView(context: Context, onNext: () => Unit, attrs: Attribute
         val root = new LinearLayout(getContext)
         root.setOrientation(LinearLayout.HORIZONTAL)
         val tvName=new TextView(getContext)
+        tvName.setTextSize(20f)
         tvName.setId(1)
         val tvCheck=new CheckBox(getContext)
         tvCheck.setId(2)
+        tvCheck.setTextSize(20f)
+        root.setPadding(5,5,5,5)
         root.addView(tvCheck)
         root.addView(tvName)
         view=root
